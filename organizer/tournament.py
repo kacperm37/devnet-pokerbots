@@ -161,7 +161,9 @@ def main():
     pairs = list(itertools.combinations(bots, 2))
     if not args.sandbox:
         print('Note: no --sandbox, so bots run directly on this machine. Use this only for testing.\n')
-    print('{} bots, {} matchups, {} hands per game\n'.format(len(bots), len(pairs), args.hands))
+    print('{} bots, {} matchups, {} hands per game, {:.0f} s clock, stacks of {}, blinds {}/{}\n'.format(
+        len(bots), len(pairs), args.hands, engine.STARTING_GAME_CLOCK, engine.STARTING_STACK,
+        engine.SMALL_BLIND, engine.BIG_BLIND))
 
     matchups = []
     for a, b in pairs:

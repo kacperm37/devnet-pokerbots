@@ -31,8 +31,14 @@ from launchers import HostLauncher  # noqa: E402
 
 APPROVED = {'eval7', 'numpy', 'skeleton'}
 SIZE_LIMIT_MB = 100
-OFFICIAL_HANDS = engine.NUM_ROUNDS
-OFFICIAL_CLOCK = engine.STARTING_GAME_CLOCK
+# The official settings. check_bot uses these even if you've edited config.py.
+OFFICIAL = {'NUM_ROUNDS': 3000, 'STARTING_GAME_CLOCK': 180., 'ENFORCE_GAME_CLOCK': True,
+            'STARTING_STACK': 400, 'BIG_BLIND': 2, 'SMALL_BLIND': 1, 'CONNECT_TIMEOUT': 10.}
+OFFICIAL_HANDS = OFFICIAL['NUM_ROUNDS']
+OFFICIAL_CLOCK = OFFICIAL['STARTING_GAME_CLOCK']
+EDITED_SETTINGS = [k for k, v in OFFICIAL.items() if getattr(engine, k) != v]
+for key, value in OFFICIAL.items():
+    setattr(engine, key, value)
 
 
 def ok(msg):
@@ -49,7 +55,8 @@ def fail(msg):
 
 def folder_size_mb(path):
     total = 0
-    for root, _, files in os.walk(path):
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if d != '.git']  # git history isn't part of the bot
         for f in files:
             total += os.path.getsize(os.path.join(root, f))
     return total / 1e6
@@ -73,7 +80,7 @@ def unapproved_imports(bot_dir):
     local |= {d for d in os.listdir(bot_dir) if os.path.isdir(os.path.join(bot_dir, d))}
     found = set()
     for root, dirs, files in os.walk(bot_dir):
-        dirs[:] = [d for d in dirs if d not in ('skeleton', '__pycache__')]
+        dirs[:] = [d for d in dirs if d not in ('skeleton', '__pycache__', '.git')]
         for f in files:
             if not f.endswith('.py'):
                 continue
@@ -147,6 +154,9 @@ def main():
         os.path.basename(bot_dir), os.path.basename(opponent_dir), args.hands))
     problems = 0
 
+    if EDITED_SETTINGS:
+        warn('Your config.py changes {}. This check uses the official settings anyway.'.format(
+            ', '.join(EDITED_SETTINGS)))
     if sys.version_info[:2] != (3, 12):
         warn('You are running Python {}.{}; the official machine uses Python 3.12.'.format(*sys.version_info[:2]))
 
