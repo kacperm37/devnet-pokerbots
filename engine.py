@@ -161,7 +161,8 @@ class Player():
                 instead of a TCP port.
     '''
 
-    def __init__(self, name, path, official=False, launcher=None, socket_dir=None, log_dir='.', quiet=False):
+    def __init__(self, name, path, official=False, launcher=None, socket_dir=None, log_dir='.', quiet=False,
+                 clock=None, read_timeout=CONNECT_TIMEOUT):
         self.name = name
         self.quiet = quiet
         self.time_used = 0.  # actual thinking time, even if the clock is later zeroed
@@ -170,7 +171,9 @@ class Player():
         self.launcher = launcher
         self.socket_dir = socket_dir
         self.log_dir = log_dir
-        self.game_clock = STARTING_GAME_CLOCK
+        self.starting_clock = STARTING_GAME_CLOCK if clock is None else clock
+        self.game_clock = self.starting_clock
+        self.read_timeout = read_timeout  # None waits forever (for a human player)
         self.bankroll = 0
         self.commands = None
         self.bot_subprocess = None
@@ -275,7 +278,7 @@ class Player():
                     # block until we timeout or the player connects
                     client_socket, _ = server_socket.accept()
                     with client_socket:
-                        client_socket.settimeout(CONNECT_TIMEOUT)
+                        client_socket.settimeout(self.read_timeout)
                         sock = client_socket.makefile('rw')
                         self.socketfile = sock
                         self.events['connected'] = True
@@ -382,17 +385,23 @@ class Game():
     '''
 
     def __init__(self, player_1=None, player_2=None, num_rounds=None, seed=None,
-                 official=None, launcher=None, socket_dir=None, log_dir='.', quiet=False):
+                 official=None, launcher=None, socket_dir=None, log_dir='.', quiet=False,
+                 clocks=None, read_timeouts=None, require_connection=False):
         self.player_specs = [player_1 or (PLAYER_1_NAME, PLAYER_1_PATH),
                              player_2 or (PLAYER_2_NAME, PLAYER_2_PATH)]
         self.num_rounds = num_rounds or NUM_ROUNDS
         # Duplicate matches: both games of a matchup use the same seed.
         self.seed = seed or os.environ.get('POKERBOTS_SEED') or secrets.token_hex(16)
         self.official = bool(os.environ.get('POKERBOTS_OFFICIAL')) if official is None else official
-        self.launcher = launcher
+        # launcher, clocks, and read_timeouts may each be one value or a (player 1, player 2) pair
+        pair = lambda value: tuple(value) if isinstance(value, (tuple, list)) else (value, value)
+        self.launchers = pair(launcher)
+        self.clocks = pair(clocks)
+        self.read_timeouts = pair(read_timeouts) if read_timeouts is not None else (CONNECT_TIMEOUT,) * 2
         self.socket_dir = socket_dir
         self.log_dir = log_dir
         self.quiet = quiet
+        self.require_connection = require_connection  # stop instead of playing against a dead bot
         names = [spec[0] for spec in self.player_specs]
         self.log = ['DevNet.CSU Pokerbots - ' + names[0] + ' vs ' + names[1]]
         self.player_messages = [[], []]
@@ -484,14 +493,20 @@ class Game():
             print('DevNet.CSU Pokerbots engine (based on MIT Pokerbots)')
             print('Starting the engine...')
         os.makedirs(self.log_dir, exist_ok=True)
-        players = [Player(name, path, official=self.official, launcher=self.launcher,
-                          socket_dir=self.socket_dir, log_dir=self.log_dir, quiet=self.quiet)
-                   for name, path in self.player_specs]
+        players = [Player(name, path, official=self.official, launcher=self.launchers[i],
+                          socket_dir=self.socket_dir, log_dir=self.log_dir, quiet=self.quiet,
+                          clock=self.clocks[i], read_timeout=self.read_timeouts[i])
+                   for i, (name, path) in enumerate(self.player_specs)]
         first, second = players
         for player in players:
             player.build()
         for player in players:
             player.run()
+        missing = [p.name for p in players if not p.events['connected']]
+        if self.require_connection and missing:
+            for player in players:
+                player.stop()
+            raise RuntimeError(', '.join(missing) + " didn't connect; see its log in " + self.log_dir)
         for round_num in range(1, self.num_rounds + 1):
             for player in players:
                 player.round_num = round_num
@@ -514,7 +529,7 @@ class Game():
             'players': [{
                 'name': p.name,
                 'bankroll': p.bankroll,
-                'clock_used': round(min(p.time_used, STARTING_GAME_CLOCK), 3),
+                'clock_used': round(min(p.time_used, p.starting_clock), 3),
                 'events': p.events,
             } for p in (first, second)],
         }
