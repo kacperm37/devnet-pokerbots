@@ -27,7 +27,14 @@ podman build -t devnet-pokerbots -f organizer/Containerfile .
 
 Add any libraries approved in week 1 to the `pip install` line in `Containerfile`, then rebuild.
 
-Before kickoff, run a sandboxed test with the house bots, plus a few bots that try to break the rules (write files, open the network, start lots of threads):
+Before kickoff, run the test suite on the VM, including the sandbox tests. Those start bots that try to break the rules (open the network, read the seed, write files, start lots of threads, use too much memory) and check that each attempt fails. See `tests/README.md`:
+
+```
+python3 -m unittest discover -s tests -v
+POKERBOTS_TEST_SANDBOX=podman python3 -m unittest discover -s tests -p test_sandbox.py -v
+```
+
+Then run a short sandboxed tournament with the house bots:
 
 ```
 python3 organizer/tournament.py house_bots --sandbox podman --hands 300 --out results/test
